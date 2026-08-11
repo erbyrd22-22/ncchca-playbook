@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { getInstance, sql } from '@/lib/db';
+import { getInstance } from '@/lib/db';
+import { serverClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,17 +11,39 @@ export default async function Search({
   const { q = '' } = await searchParams;
   const inst = await getInstance(slug);
   if (!inst) notFound();
-  const term = `%${q}%`;
 
-  const hits = q ? await sql<{kind:string;text:string;slug:string;title:string}[]>`
-    select 'item' as kind, it.label as text, s.slug, s.title
-      from item it join block b on b.id=it.block_id join section s on s.id=b.section_id
-     where s.template_id=${inst.template_id} and it.label ilike ${term}
-    union all
-    select 'block', coalesce(b.title,'')||' — '||coalesce(b.body,''), s.slug, s.title
-      from block b join section s on s.id=b.section_id
-     where s.template_id=${inst.template_id} and (b.title ilike ${term} or b.body ilike ${term})
-    limit 60` : [];
+  const sb = await serverClient();
+  const { data: sections } = await sb.from('section')
+    .select('id,slug,title').eq('template_id', inst.template_id);
+  const secById = new Map((sections ?? []).map(s => [s.id, s]));
+
+  const { data: blocks } = await sb.from('block')
+    .select('id,section_id,title,body')
+    .in('section_id', (sections ?? []).map(s => s.id));
+  const blkById = new Map((blocks ?? []).map(b => [b.id, b]));
+
+  type Hit = { slug: string; title: string; text: string };
+  const hits: Hit[] = [];
+
+  if (q) {
+    const needle = q.toLowerCase();
+    for (const b of blocks ?? []) {
+      const text = `${b.title ?? ''} — ${b.body ?? ''}`;
+      if (text.toLowerCase().includes(needle)) {
+        const s = secById.get(b.section_id);
+        if (s) hits.push({ slug: s.slug, title: s.title, text });
+      }
+    }
+    const { data: items } = await sb.from('item')
+      .select('label,block_id')
+      .in('block_id', (blocks ?? []).map(b => b.id))
+      .ilike('label', `%${q}%`);
+    for (const it of items ?? []) {
+      const b = blkById.get(it.block_id);
+      const s = b && secById.get(b.section_id);
+      if (s) hits.push({ slug: s.slug, title: s.title, text: it.label });
+    }
+  }
 
   return (
     <>
@@ -31,7 +54,7 @@ export default async function Search({
       </div></header>
       <div className="wrap"><main style={{maxWidth:900,margin:'0 auto'}}>
         <h1 className="page">{hits.length} result{hits.length===1?'':'s'} for “{q}”</h1>
-        {hits.map((h,i)=>(
+        {hits.slice(0,60).map((h,i)=>(
           <a key={i} href={`/i/${slug}/${h.slug}`} style={{textDecoration:'none'}}>
             <div className="card" style={{padding:'.8rem 1rem',marginBottom:'.5rem'}}>
               <div className="eyebrow">{h.title}</div>

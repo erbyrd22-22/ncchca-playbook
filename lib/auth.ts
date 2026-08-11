@@ -1,46 +1,38 @@
-import { cookies } from 'next/headers';
-import { sql, type Role } from './db';
+import 'server-only';
+import { serverClient } from './supabase-server';
 
+export type Role = 'admin' | 'editor' | 'viewer';
 export type SessionUser = { id: string; email: string; full_name: string; role: Role };
 
 /**
- * Two auth modes.
+ * Identity comes from Supabase Auth. The role is read from app_user, whose
+ * row is created automatically by the on_auth_user_created trigger and
+ * always defaults to 'viewer'.
  *
- *  AUTH_MODE=dev       — local prototype. A cookie names which seeded user you
- *                        are, so all three roles can be demoed without email.
- *  AUTH_MODE=supabase  — production. Identity comes from Supabase Auth; the
- *                        role is read from app_user, which is keyed to auth.uid().
- *                        RLS (db/002_rls.sql) enforces the same rules at the
- *                        database level, so the app layer is not the only gate.
+ * getUser() revalidates the token against Supabase rather than trusting a
+ * decoded cookie.
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  if (process.env.AUTH_MODE === 'supabase') return getSupabaseUser();
-
-  const jar = await cookies();
-  const email = jar.get('dev_user')?.value ?? 'editor@ncchca.org';
-  const [u] = await sql<SessionUser[]>`
-    select id, email, full_name, role from app_user where email = ${email}`;
-  return u ?? null;
-}
-
-async function getSupabaseUser(): Promise<SessionUser | null> {
-  const { createServerClient } = await import('@supabase/ssr');
-  const jar = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => jar.getAll(),
-        setAll: (cs) => { try { cs.forEach(({ name, value, options }) => jar.set(name, value, options)); } catch {} },
-      },
-    }
-  );
-  const { data } = await supabase.auth.getUser();
+  const sb = await serverClient();
+  const { data } = await sb.auth.getUser();
   if (!data.user) return null;
-  const [u] = await sql<SessionUser[]>`
-    select id, email, full_name, role from app_user where id = ${data.user.id}`;
-  return u ?? null;
+
+  const { data: row } = await sb
+    .from('app_user')
+    .select('id,email,full_name,role')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  if (!row) {
+    // Signed in but no profile row yet (trigger lag). Treat as least-privileged.
+    return {
+      id: data.user.id,
+      email: data.user.email ?? '',
+      full_name: data.user.email?.split('@')[0] ?? 'User',
+      role: 'viewer',
+    };
+  }
+  return row as SessionUser;
 }
 
 export function canEdit(u: SessionUser | null) {
@@ -50,7 +42,10 @@ export function isAdmin(u: SessionUser | null) {
   return u?.role === 'admin';
 }
 
-/** Throws if the caller may not write. Every server action calls this. */
+/**
+ * App-layer guard. RLS enforces the same rules in the database, so this is
+ * defence in depth and a source of clear error messages — not the only gate.
+ */
 export async function requireEditor(): Promise<SessionUser> {
   const u = await getSessionUser();
   if (!canEdit(u)) throw new Error('Not authorized: editor role required');

@@ -1,23 +1,32 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
-import { sql, logAudit } from './db';
+import { serverClient } from './supabase-server';
+import { logAudit } from './db';
 import { requireEditor, requireAdmin, getSessionUser } from './auth';
 import { cleanInline, cleanBlock, cleanText } from './sanitize';
 
 const touch = (instSlug: string) => revalidatePath(`/i/${instSlug}`, 'layout');
+
+/** Surface Postgres/RLS errors as readable messages instead of silent no-ops. */
+function check(error: { message: string; code?: string } | null, what: string) {
+  if (!error) return;
+  if (error.code === '42501' || /row-level security/i.test(error.message))
+    throw new Error(`Not authorized to ${what}.`);
+  throw new Error(`Could not ${what}: ${error.message}`);
+}
 
 // ---------------------------------------------------------------------
 // Progress (per instance)
 // ---------------------------------------------------------------------
 export async function toggleItem(instanceId: string, instSlug: string, itemId: string, done: boolean) {
   const u = await requireEditor();
-  await sql`
-    insert into item_state (instance_id, item_id, done, updated_by)
-    values (${instanceId}, ${itemId}, ${done}, ${u.id})
-    on conflict (instance_id, item_id)
-    do update set done = excluded.done, updated_by = excluded.updated_by, updated_at = now()`;
+  const sb = await serverClient();
+  const { error } = await sb.from('item_state').upsert(
+    { instance_id: instanceId, item_id: itemId, done, updated_by: u.id, updated_at: new Date().toISOString() },
+    { onConflict: 'instance_id,item_id' }
+  );
+  check(error, 'update this item');
   await logAudit(u.id, 'item.toggle', 'item', itemId, instanceId, null, { done });
   touch(instSlug);
 }
@@ -27,36 +36,32 @@ export async function setItemMeta(
   patch: { owner_id?: string | null; due_date?: string | null; note?: string | null }
 ) {
   const u = await requireEditor();
+  const sb = await serverClient();
 
-  // Ensure the row exists, then apply only the keys actually supplied.
-  await sql`
-    insert into item_state (instance_id, item_id, updated_by)
-    values (${instanceId}, ${itemId}, ${u.id})
-    on conflict (instance_id, item_id) do nothing`;
+  const row: Record<string, unknown> = {
+    instance_id: instanceId, item_id: itemId,
+    updated_by: u.id, updated_at: new Date().toISOString(),
+  };
+  if ('owner_id' in patch) row.owner_id = patch.owner_id || null;
+  if ('due_date' in patch) row.due_date = patch.due_date || null;
+  if ('note' in patch) row.note = cleanText(patch.note) || null;
 
-  if ('owner_id' in patch)
-    await sql`update item_state set owner_id = ${patch.owner_id ?? null}, updated_by = ${u.id}, updated_at = now()
-              where instance_id = ${instanceId} and item_id = ${itemId}`;
-  if ('due_date' in patch)
-    await sql`update item_state set due_date = ${patch.due_date || null}, updated_by = ${u.id}, updated_at = now()
-              where instance_id = ${instanceId} and item_id = ${itemId}`;
-  if ('note' in patch)
-    await sql`update item_state set note = ${cleanText(patch.note) || null}, updated_by = ${u.id}, updated_at = now()
-              where instance_id = ${instanceId} and item_id = ${itemId}`;
-
+  const { error } = await sb.from('item_state').upsert(row, { onConflict: 'instance_id,item_id' });
+  check(error, 'save this item');
   await logAudit(u.id, 'item.meta', 'item', itemId, instanceId, null, patch);
   touch(instSlug);
 }
 
 // ---------------------------------------------------------------------
-// Template content editing (affects every instance)
+// Template content (affects every instance)
 // ---------------------------------------------------------------------
 export async function updateItemLabel(instSlug: string, itemId: string, label: string) {
   const u = await requireEditor();
+  const sb = await serverClient();
   const clean = cleanInline(label);
-  const [before] = await sql`select label from item where id = ${itemId}`;
-  await sql`update item set label = ${clean} where id = ${itemId}`;
-  await logAudit(u.id, 'item.update', 'item', itemId, null, before, { label: clean });
+  const { error } = await sb.from('item').update({ label: clean }).eq('id', itemId);
+  check(error, 'edit this item');
+  await logAudit(u.id, 'item.update', 'item', itemId, null, null, { label: clean });
   touch(instSlug);
 }
 
@@ -64,37 +69,48 @@ export async function addItem(instSlug: string, blockId: string, label: string) 
   const u = await requireEditor();
   const clean = cleanInline(label);
   if (!clean) return;
-  const [{ next }] = await sql<{ next: number }[]>`
-    select coalesce(max(sort_order),-1)+1 as next from item where block_id = ${blockId}`;
-  const [row] = await sql`insert into item (block_id, label, sort_order)
-                          values (${blockId}, ${clean}, ${next}) returning id`;
-  await logAudit(u.id, 'item.create', 'item', row.id, null, null, { label: clean });
+  const sb = await serverClient();
+  const { data: last } = await sb
+    .from('item').select('sort_order').eq('block_id', blockId)
+    .order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await sb
+    .from('item')
+    .insert({ block_id: blockId, label: clean, sort_order: (last?.sort_order ?? -1) + 1 })
+    .select('id').single();
+  check(error, 'add this item');
+  await logAudit(u.id, 'item.create', 'item', data?.id ?? null, null, null, { label: clean });
   touch(instSlug);
 }
 
 export async function deleteItem(instSlug: string, itemId: string) {
   const u = await requireEditor();
-  const [before] = await sql`select label, block_id from item where id = ${itemId}`;
-  await sql`delete from item where id = ${itemId}`;
+  const sb = await serverClient();
+  const { data: before } = await sb.from('item').select('label,block_id').eq('id', itemId).maybeSingle();
+  const { error } = await sb.from('item').delete().eq('id', itemId);
+  check(error, 'delete this item');
   await logAudit(u.id, 'item.delete', 'item', itemId, null, before, null);
   touch(instSlug);
 }
 
 export async function moveItem(instSlug: string, itemId: string, dir: -1 | 1) {
   await requireEditor();
-  const [me] = await sql<{ block_id: string; sort_order: number }[]>`
-    select block_id, sort_order from item where id = ${itemId}`;
+  const sb = await serverClient();
+  const { data: me } = await sb.from('item').select('block_id,sort_order').eq('id', itemId).maybeSingle();
   if (!me) return;
-  const [neighbour] = await sql<{ id: string; sort_order: number }[]>`
-    select id, sort_order from item
-    where block_id = ${me.block_id}
-      and sort_order ${dir === -1 ? sql`<` : sql`>`} ${me.sort_order}
-    order by sort_order ${dir === -1 ? sql`desc` : sql`asc`} limit 1`;
-  if (!neighbour) return;
-  await sql.begin(async (t) => {
-    await t`update item set sort_order = ${neighbour.sort_order} where id = ${itemId}`;
-    await t`update item set sort_order = ${me.sort_order} where id = ${neighbour.id}`;
-  });
+
+  const q = sb.from('item').select('id,sort_order').eq('block_id', me.block_id);
+  const { data: nbrs } = dir === -1
+    ? await q.lt('sort_order', me.sort_order).order('sort_order', { ascending: false }).limit(1)
+    : await q.gt('sort_order', me.sort_order).order('sort_order', { ascending: true }).limit(1);
+
+  const nbr = nbrs?.[0];
+  if (!nbr) return;
+
+  // Two-step swap via a temporary slot avoids tripping the unique ordering
+  // assumptions if they're ever tightened.
+  await sb.from('item').update({ sort_order: -1 }).eq('id', itemId);
+  await sb.from('item').update({ sort_order: me.sort_order }).eq('id', nbr.id);
+  await sb.from('item').update({ sort_order: nbr.sort_order }).eq('id', itemId);
   touch(instSlug);
 }
 
@@ -103,19 +119,20 @@ export async function updateBlock(
   patch: { title?: string | null; body?: string | null }
 ) {
   const u = await requireEditor();
-  const [before] = await sql`select title, body from block where id = ${blockId}`;
-  if (patch.title !== undefined)
-    await sql`update block set title = ${cleanText(patch.title)} where id = ${blockId}`;
-  if (patch.body !== undefined)
-    await sql`update block set body = ${cleanBlock(patch.body)} where id = ${blockId}`;
-  await logAudit(u.id, 'block.update', 'block', blockId, null, before, patch);
+  const sb = await serverClient();
+  const upd: Record<string, unknown> = {};
+  if (patch.title !== undefined) upd.title = cleanText(patch.title);
+  if (patch.body !== undefined) upd.body = cleanBlock(patch.body);
+  if (!Object.keys(upd).length) return;
+  const { error } = await sb.from('block').update(upd).eq('id', blockId);
+  check(error, 'edit this block');
+  await logAudit(u.id, 'block.update', 'block', blockId, null, null, patch);
   touch(instSlug);
 }
 
 export async function addBlock(instSlug: string, sectionId: string, kind: string) {
   const u = await requireEditor();
-  const [{ next }] = await sql<{ next: number }[]>`
-    select coalesce(max(sort_order),-1)+1 as next from block where section_id = ${sectionId}`;
+  const sb = await serverClient();
   const defaults: Record<string, { title: string; body: string }> = {
     card: { title: 'New section', body: 'Describe this component.' },
     ai:   { title: 'AI layer',    body: 'Where automation removes manual work in this phase.' },
@@ -124,19 +141,25 @@ export async function addBlock(instSlug: string, sectionId: string, kind: string
     phase:{ title: 'New phase',   body: '' },
   };
   const d = defaults[kind] ?? defaults.card;
-  const [row] = await sql`
-    insert into block (section_id, kind, title, body, meta, sort_order)
-    values (${sectionId}, ${kind}, ${d.title}, ${d.body},
-            ${sql.json(kind === 'phase' ? { when: 'TBD' } : {})}, ${next})
-    returning id`;
-  await logAudit(u.id, 'block.create', 'block', row.id, null, null, { kind });
+  const { data: last } = await sb
+    .from('block').select('sort_order').eq('section_id', sectionId)
+    .order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await sb.from('block').insert({
+    section_id: sectionId, kind, title: d.title, body: d.body,
+    meta: kind === 'phase' ? { when: 'TBD' } : {},
+    sort_order: (last?.sort_order ?? -1) + 1,
+  }).select('id').single();
+  check(error, 'add this block');
+  await logAudit(u.id, 'block.create', 'block', data?.id ?? null, null, null, { kind });
   touch(instSlug);
 }
 
 export async function deleteBlock(instSlug: string, blockId: string) {
   const u = await requireEditor();
-  const [before] = await sql`select kind, title from block where id = ${blockId}`;
-  await sql`delete from block where id = ${blockId}`;
+  const sb = await serverClient();
+  const { data: before } = await sb.from('block').select('kind,title').eq('id', blockId).maybeSingle();
+  const { error } = await sb.from('block').delete().eq('id', blockId);
+  check(error, 'delete this block');
   await logAudit(u.id, 'block.delete', 'block', blockId, null, before, null);
   touch(instSlug);
 }
@@ -146,14 +169,15 @@ export async function updateSection(
   patch: { title?: string; lede?: string | null; eyebrow?: string | null }
 ) {
   const u = await requireEditor();
-  const [before] = await sql`select title, lede, eyebrow from section where id = ${sectionId}`;
-  if (patch.title !== undefined)
-    await sql`update section set title = ${cleanText(patch.title)} where id = ${sectionId}`;
-  if (patch.lede !== undefined)
-    await sql`update section set lede = ${cleanText(patch.lede)} where id = ${sectionId}`;
-  if (patch.eyebrow !== undefined)
-    await sql`update section set eyebrow = ${cleanText(patch.eyebrow)} where id = ${sectionId}`;
-  await logAudit(u.id, 'section.update', 'section', sectionId, null, before, patch);
+  const sb = await serverClient();
+  const upd: Record<string, unknown> = {};
+  if (patch.title !== undefined) upd.title = cleanText(patch.title);
+  if (patch.lede !== undefined) upd.lede = cleanText(patch.lede);
+  if (patch.eyebrow !== undefined) upd.eyebrow = cleanText(patch.eyebrow);
+  if (!Object.keys(upd).length) return;
+  const { error } = await sb.from('section').update(upd).eq('id', sectionId);
+  check(error, 'edit this section');
+  await logAudit(u.id, 'section.update', 'section', sectionId, null, null, patch);
   touch(instSlug);
 }
 
@@ -162,40 +186,49 @@ export async function updateSection(
 // ---------------------------------------------------------------------
 export async function createInstance(form: FormData) {
   const u = await requireAdmin();
+  const sb = await serverClient();
   const name = cleanText(String(form.get('name') ?? ''));
   if (!name) throw new Error('Name required');
+
   const slug =
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) +
     '-' + Math.random().toString(36).slice(2, 6);
-  const [tpl] = await sql`select id from template order by created_at limit 1`;
-  const [row] = await sql`
-    insert into instance (template_id, name, slug, tier, status, event_date, venue, created_by)
-    values (${tpl.id}, ${name}, ${slug},
-            ${String(form.get('tier') || 'tier1')}, 'planning',
-            ${String(form.get('event_date') || '') || null},
-            ${String(form.get('venue') || '') || null}, ${u.id})
-    returning id, slug`;
-  await logAudit(u.id, 'instance.create', 'instance', row.id, row.id, null, { name });
+
+  const { data: tpl } = await sb.from('template').select('id').limit(1).single();
+  const { data, error } = await sb.from('instance').insert({
+    template_id: tpl!.id, name, slug,
+    tier: String(form.get('tier') || 'tier1'),
+    status: 'planning',
+    event_date: String(form.get('event_date') || '') || null,
+    venue: cleanText(String(form.get('venue') || '')) || null,
+    created_by: u.id,
+  }).select('id,slug').single();
+  check(error, 'create this event');
+  await logAudit(u.id, 'instance.create', 'instance', data!.id, data!.id, null, { name });
   revalidatePath('/', 'layout');
-  return row.slug as string;
+  return data!.slug as string;
 }
 
 export async function updateInstance(instSlug: string, instanceId: string, form: FormData) {
   const u = await requireEditor();
-  await sql`update instance set
-    name = ${cleanText(String(form.get('name') ?? ''))},
-    status = ${String(form.get('status') ?? 'planning')},
-    event_date = ${String(form.get('event_date') || '') || null},
-    venue = ${cleanText(String(form.get('venue') || '')) || null},
-    notes = ${cleanText(String(form.get('notes') || '')) || null}
-    where id = ${instanceId}`;
+  const sb = await serverClient();
+  const { error } = await sb.from('instance').update({
+    name: cleanText(String(form.get('name') ?? '')),
+    status: String(form.get('status') ?? 'planning'),
+    event_date: String(form.get('event_date') || '') || null,
+    venue: cleanText(String(form.get('venue') || '')) || null,
+    notes: cleanText(String(form.get('notes') || '')) || null,
+  }).eq('id', instanceId);
+  check(error, 'save this event');
   await logAudit(u.id, 'instance.update', 'instance', instanceId, instanceId, null, null);
   touch(instSlug);
 }
 
 export async function resetInstanceProgress(instSlug: string, instanceId: string) {
   const u = await requireAdmin();
-  await sql`delete from item_state where instance_id = ${instanceId}`;
+  const sb = await serverClient();
+  const { error } = await sb.from('item_state').delete().eq('instance_id', instanceId);
+  check(error, "reset this event's progress");
   await logAudit(u.id, 'instance.reset', 'instance', instanceId, instanceId, null, null);
   touch(instSlug);
 }
@@ -206,17 +239,12 @@ export async function resetInstanceProgress(instSlug: string, instanceId: string
 export async function addComment(instSlug: string, instanceId: string, itemId: string, body: string) {
   const u = await getSessionUser();
   if (!u) throw new Error('Sign in required');
-  if (!body.trim()) return;
-  await sql`insert into comment (instance_id, item_id, author_id, body)
-            values (${instanceId}, ${itemId}, ${u.id}, ${cleanText(body)})`;
+  const clean = cleanText(body);
+  if (!clean) return;
+  const sb = await serverClient();
+  const { error } = await sb.from('comment').insert({
+    instance_id: instanceId, item_id: itemId, author_id: u.id, body: clean,
+  });
+  check(error, 'post this comment');
   touch(instSlug);
-}
-
-// ---------------------------------------------------------------------
-// Dev-only role switcher
-// ---------------------------------------------------------------------
-export async function devSwitchUser(email: string) {
-  if (process.env.AUTH_MODE === 'supabase') throw new Error('Disabled in production');
-  (await cookies()).set('dev_user', email, { path: '/', httpOnly: true, sameSite: 'lax' });
-  revalidatePath('/', 'layout');
 }

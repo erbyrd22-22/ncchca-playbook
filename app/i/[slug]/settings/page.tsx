@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { redirect } from 'next/navigation';
-import { getInstance, getInstances, getUsers, getAudit, sql } from '@/lib/db';
+import { getInstance, getInstances, getUsers, getAudit, countTemplateItems } from '@/lib/db';
 import { getSessionUser, isAdmin, canEdit } from '@/lib/auth';
 import { createInstance, updateInstance, resetInstanceProgress } from '@/lib/actions';
 
@@ -17,9 +17,7 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
   const admin = isAdmin(user);
   const editor = canEdit(user);
 
-  const [{ count: totalItems }] = await sql<{ count: number }[]>`
-    select count(*)::int from item it join block b on b.id=it.block_id
-    join section s on s.id=b.section_id where s.template_id=${instance.template_id}`;
+  const totalItems = await countTemplateItems(instance.template_id);
 
   async function saveInstance(form: FormData) {
     'use server';

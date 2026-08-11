@@ -39,7 +39,6 @@ export default async function SectionPage({
       progress={progress}
       user={user}
       users={users.map((u) => ({ id: u.id, full_name: u.full_name }))}
-      devMode={process.env.AUTH_MODE !== 'supabase'}
     />
   );
 }

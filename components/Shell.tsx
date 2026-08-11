@@ -9,14 +9,13 @@ import type { Block, Instance, Section } from '@/lib/db';
 import type { SessionUser } from '@/lib/auth';
 
 export default function Shell({
-  instances, instance, sections, section, blocks, progress, user, users, devMode,
+  instances, instance, sections, section, blocks, progress, user, users,
 }: {
   instances: Instance[]; instance: Instance; sections: Section[];
   section: Section; blocks: Block[];
   progress: Record<string, { total: number; done: number; pct: number | null }>;
   user: SessionUser | null;
   users: { id: string; full_name: string }[];
-  devMode: boolean;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -38,7 +37,7 @@ export default function Shell({
       <TopBar
         instances={instances} current={instance} user={user}
         section={section.slug} editing={editing}
-        onToggleEdit={() => setEditing((e) => !e)} devMode={devMode}
+        onToggleEdit={() => setEditing((e) => !e)}
       />
 
       <div className="wrap">

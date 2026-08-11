@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { sql } from '@/lib/db';
 
 /**
- * Magic-link / OAuth landing. Exchanges the code for a session, then makes
- * sure the signed-in user has an app_user row. A user who authenticates but
- * has no row gets 'viewer' — never an elevated role by accident.
+ * Magic-link / OAuth landing. Exchanges the code for a session.
+ *
+ * The app_user row is created by the on_auth_user_created trigger in the
+ * database (SECURITY DEFINER, always role 'viewer'), so nothing is written
+ * here — which also means this route never needs elevated database access.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -29,15 +30,8 @@ export async function GET(request: Request) {
     }
   );
 
-  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error || !data.user) return fail(error?.message ?? 'Could not complete sign-in.');
-
-  const u = data.user;
-  await sql`
-    insert into app_user (id, email, full_name, role)
-    values (${u.id}, ${u.email ?? ''},
-            ${u.user_metadata?.full_name ?? u.email?.split('@')[0] ?? 'New user'}, 'viewer')
-    on conflict (id) do update set last_seen_at = now()`;
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) return fail(error.message);
 
   return NextResponse.redirect(new URL(next, url.origin));
 }

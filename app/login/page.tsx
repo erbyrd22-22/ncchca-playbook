@@ -9,7 +9,6 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string; error?: string }>;
 }) {
   const { next = '/', error } = await searchParams;
-  const devMode = process.env.AUTH_MODE !== 'supabase';
 
   return (
     <div className="auth-wrap">
@@ -26,16 +25,7 @@ export default async function LoginPage({
 
         {error && <div className="auth-err">{decodeURIComponent(error)}</div>}
 
-        {devMode ? (
-          <>
-            <p className="auth-note">
-              This build is running in <b>development mode</b> — sign-in is bypassed and a role
-              switcher appears in the header instead. Set <code>AUTH_MODE=supabase</code> to
-              enable real authentication.
-            </p>
-            <a className="auth-btn" href={next}>Continue to the playbook →</a>
-          </>
-        ) : !supabaseConfigured() ? (
+        {!supabaseConfigured() ? (
           <div className="auth-err">
             Supabase is not configured. Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
             <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.

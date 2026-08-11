@@ -2,13 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 /**
- * Refreshes the Supabase session cookie on every request (tokens expire
- * quickly) and keeps unauthenticated visitors out of the playbook.
- * In AUTH_MODE=dev this is a no-op so the local prototype needs no login.
+ * Refreshes the Supabase session cookie on every request (access tokens are
+ * short-lived) and keeps unauthenticated visitors out of the playbook.
  */
 export async function middleware(request: NextRequest) {
-  if (process.env.AUTH_MODE !== 'supabase') return NextResponse.next();
-
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

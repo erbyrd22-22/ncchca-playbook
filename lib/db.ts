@@ -1,20 +1,14 @@
-import postgres from 'postgres';
+import 'server-only';
+import { serverClient } from './supabase-server';
 
-declare global { var __sql: ReturnType<typeof postgres> | undefined; }
+/**
+ * Data access via the Supabase API using the signed-in user's own session.
+ *
+ * There is deliberately no Postgres connection string here. Every query
+ * carries the user's JWT, so Row Level Security decides what they can see
+ * and change — the database is the enforcement point, not this file.
+ */
 
-export const sql =
-  global.__sql ??
-  postgres(process.env.DATABASE_URL!, {
-    max: 10,
-    onnotice: () => {},
-    transform: { undefined: null },
-  });
-
-if (process.env.NODE_ENV !== 'production') global.__sql = sql;
-
-// ---------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------
 export type Role = 'admin' | 'editor' | 'viewer';
 
 export type Item = {
@@ -38,64 +32,129 @@ export type Section = {
 export type Instance = {
   id: string; name: string; slug: string; tier: string; status: string;
   event_date: string | null; venue: string | null; template_id: string;
+  notes?: string | null;
 };
 
-// ---------------------------------------------------------------------
-// Queries
-// ---------------------------------------------------------------------
+const STATUS_RANK: Record<string, number> = { active: 0, planning: 1, complete: 2, archived: 3 };
+
 export async function getInstances(): Promise<Instance[]> {
-  return sql<Instance[]>`
-    select id, name, slug, tier, status, event_date::text, venue, template_id
-    from instance where status <> 'archived'
-    order by case status when 'active' then 0 when 'planning' then 1 else 2 end,
-             event_date nulls last, name`;
+  const sb = await serverClient();
+  const { data, error } = await sb
+    .from('instance')
+    .select('id,name,slug,tier,status,event_date,venue,template_id')
+    .neq('status', 'archived');
+  if (error) throw error;
+  return (data ?? []).sort(
+    (a, b) =>
+      (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) ||
+      (a.event_date ?? '9999').localeCompare(b.event_date ?? '9999') ||
+      a.name.localeCompare(b.name)
+  ) as Instance[];
 }
 
 export async function getInstance(slug: string): Promise<Instance | undefined> {
-  const [r] = await sql<Instance[]>`
-    select id, name, slug, tier, status, event_date::text, venue, template_id
-    from instance where slug = ${slug}`;
-  return r;
+  const sb = await serverClient();
+  const { data } = await sb
+    .from('instance')
+    .select('id,name,slug,tier,status,event_date,venue,template_id,notes')
+    .eq('slug', slug)
+    .maybeSingle();
+  return (data as Instance) ?? undefined;
 }
 
 export async function getSections(templateId: string): Promise<Section[]> {
-  return sql<Section[]>`
-    select id, slug, nav_group, badge, title, eyebrow, lede, kind, sort_order
-    from section where template_id = ${templateId} order by sort_order`;
+  const sb = await serverClient();
+  const { data, error } = await sb
+    .from('section')
+    .select('id,slug,nav_group,badge,title,eyebrow,lede,kind,sort_order')
+    .eq('template_id', templateId)
+    .order('sort_order');
+  if (error) throw error;
+  return (data ?? []) as Section[];
 }
 
 export async function getProgress(instanceId: string) {
-  const rows = await sql<{ slug: string; total: number; done: number; pct: number | null }[]>`
-    select slug, total::int, done::int, pct::int
-    from v_section_progress where instance_id = ${instanceId}`;
-  return Object.fromEntries(rows.map((r) => [r.slug, r]));
+  const sb = await serverClient();
+  const { data } = await sb
+    .from('v_section_progress')
+    .select('slug,total,done,pct')
+    .eq('instance_id', instanceId);
+  return Object.fromEntries((data ?? []).map((r: any) => [r.slug, r]));
 }
 
 export async function getSectionContent(
   sectionId: string,
   instanceId: string
 ): Promise<Block[]> {
-  const blocks = await sql<Omit<Block, 'items'>[]>`
-    select id, section_id, kind, title, body, meta, sort_order
-    from block where section_id = ${sectionId} order by sort_order`;
-  if (!blocks.length) return [];
+  const sb = await serverClient();
 
-  const items = await sql<Item[]>`
-    select it.id, it.block_id, it.label, it.detail, it.sort_order,
-           coalesce(st.done,false) as done, st.owner_id,
-           u.full_name as owner_name, st.due_date::text, st.note
-    from item it
-    left join item_state st on st.item_id = it.id and st.instance_id = ${instanceId}
-    left join app_user u on u.id = st.owner_id
-    where it.block_id in ${sql(blocks.map((b) => b.id))}
-    order by it.sort_order`;
+  const { data: blocks, error: bErr } = await sb
+    .from('block')
+    .select('id,section_id,kind,title,body,meta,sort_order')
+    .eq('section_id', sectionId)
+    .order('sort_order');
+  if (bErr) throw bErr;
+  if (!blocks?.length) return [];
 
-  return blocks.map((b) => ({ ...b, items: items.filter((i) => i.block_id === b.id) }));
+  const blockIds = blocks.map((b) => b.id);
+
+  const [{ data: items }, { data: states }, { data: users }] = await Promise.all([
+    sb.from('item')
+      .select('id,block_id,label,detail,sort_order')
+      .in('block_id', blockIds)
+      .order('sort_order'),
+    sb.from('item_state')
+      .select('item_id,done,owner_id,due_date,note')
+      .eq('instance_id', instanceId),
+    sb.from('app_user').select('id,full_name'),
+  ]);
+
+  // Merged in JS rather than a SQL join: item_state rows are created lazily,
+  // so most items have no matching row and a left join through PostgREST
+  // would be more fragile than it's worth.
+  const stateBy = new Map((states ?? []).map((s: any) => [s.item_id, s]));
+  const nameBy = new Map((users ?? []).map((u: any) => [u.id, u.full_name]));
+
+  return blocks.map((b) => ({
+    ...b,
+    meta: (b.meta ?? {}) as Record<string, any>,
+    items: (items ?? [])
+      .filter((i: any) => i.block_id === b.id)
+      .map((i: any) => {
+        const st = stateBy.get(i.id);
+        return {
+          ...i,
+          done: st?.done ?? false,
+          owner_id: st?.owner_id ?? null,
+          owner_name: st?.owner_id ? nameBy.get(st.owner_id) ?? null : null,
+          due_date: st?.due_date ?? null,
+          note: st?.note ?? null,
+        } as Item;
+      }),
+  })) as Block[];
 }
 
 export async function getUsers() {
-  return sql<{ id: string; email: string; full_name: string; role: Role }[]>`
-    select id, email, full_name, role from app_user order by role, full_name`;
+  const sb = await serverClient();
+  const { data } = await sb
+    .from('app_user')
+    .select('id,email,full_name,role')
+    .order('role')
+    .order('full_name');
+  return (data ?? []) as { id: string; email: string; full_name: string; role: Role }[];
+}
+
+export async function countTemplateItems(templateId: string): Promise<number> {
+  const sb = await serverClient();
+  const { data: secs } = await sb.from('section').select('id').eq('template_id', templateId);
+  if (!secs?.length) return 0;
+  const { data: blks } = await sb.from('block').select('id').in('section_id', secs.map((s) => s.id));
+  if (!blks?.length) return 0;
+  const { count } = await sb
+    .from('item')
+    .select('id', { count: 'exact', head: true })
+    .in('block_id', blks.map((b) => b.id));
+  return count ?? 0;
 }
 
 export async function logAudit(
@@ -103,15 +162,27 @@ export async function logAudit(
   entityId: string | null, instanceId: string | null,
   before: unknown, after: unknown
 ) {
-  await sql`insert into audit_log (actor_id, action, entity, entity_id, instance_id, before, after)
-            values (${actorId}, ${action}, ${entity}, ${entityId}, ${instanceId},
-                    ${sql.json(before as any)}, ${sql.json(after as any)})`;
+  const sb = await serverClient();
+  // Best-effort: a failed audit write must never block the user's action.
+  await sb.from('audit_log').insert({
+    actor_id: actorId, action, entity, entity_id: entityId,
+    instance_id: instanceId, before: before as any, after: after as any,
+  });
 }
 
 export async function getAudit(instanceId: string, limit = 40) {
-  return sql<{ action: string; entity: string; created_at: string; actor: string | null; after: any }[]>`
-    select a.action, a.entity, a.created_at::text, u.full_name as actor, a.after
-    from audit_log a left join app_user u on u.id = a.actor_id
-    where a.instance_id = ${instanceId}
-    order by a.created_at desc limit ${limit}`;
+  const sb = await serverClient();
+  const { data } = await sb
+    .from('audit_log')
+    .select('action,entity,created_at,after,actor_id')
+    .eq('instance_id', instanceId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (!data?.length) return [];
+  const { data: users } = await sb.from('app_user').select('id,full_name');
+  const nameBy = new Map((users ?? []).map((u: any) => [u.id, u.full_name]));
+  return data.map((a: any) => ({
+    action: a.action, entity: a.entity, created_at: a.created_at,
+    actor: a.actor_id ? nameBy.get(a.actor_id) ?? null : null, after: a.after,
+  }));
 }
