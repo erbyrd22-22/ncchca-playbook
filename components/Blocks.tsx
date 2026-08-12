@@ -110,6 +110,13 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
         </span>
       </div>
 
+      {item.detail && (
+        <details className="dt">
+          <summary>Source detail</summary>
+          <div>{item.detail}</div>
+        </details>
+      )}
+
       {(item.owner_name || item.due_date || item.note) && !open && (
         <div className="meta-line">
           {item.owner_name && <span className="chip">{item.owner_name}</span>}
@@ -362,3 +369,4 @@ export function AddBlockBar({ ctx }: { ctx: Ctx }) {
     </div>
   );
 }
+
