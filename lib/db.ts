@@ -15,6 +15,7 @@ export type Item = {
   id: string; block_id: string; label: string; detail: string | null;
   sort_order: number; done: boolean; owner_id: string | null;
   owner_name: string | null; due_date: string | null; note: string | null;
+ done_at: string | null;
 };
 
 export type Block = {
@@ -104,7 +105,7 @@ export async function getSectionContent(
       .in('block_id', blockIds)
       .order('sort_order'),
     sb.from('item_state')
-      .select('item_id,done,owner_id,due_date,note')
+      .select('item_id,done,done_at,owner_id,due_date,note')
       .eq('instance_id', instanceId),
     sb.from('app_user').select('id,full_name'),
   ]);
@@ -125,6 +126,7 @@ export async function getSectionContent(
         return {
           ...i,
           done: st?.done ?? false,
+ done_at: st?.done_at ?? null,
           owner_id: st?.owner_id ?? null,
           owner_name: st?.owner_id ? nameBy.get(st.owner_id) ?? null : null,
           due_date: st?.due_date ?? null,

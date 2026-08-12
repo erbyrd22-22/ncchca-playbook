@@ -208,3 +208,5 @@ tbody tr:nth-child(even){background:#FAFBFC}
 .mini.solid:hover{background:var(--teal-dk);border-color:var(--teal-dk);color:#fff}
 .nb-hint{font-size:.7rem;color:var(--muted);font-family:var(--fh);font-weight:600;margin-left:auto}
 
+
+.chip.ok{background:#EAF6EC;color:#1F6B2B;border:1px solid #BFE0C6}
