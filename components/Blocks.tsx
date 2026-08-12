@@ -61,15 +61,25 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   const run = (fn: () => Promise<any>) =>
     start(() => { fn().then(() => { ping(); router.refresh(); }); });
 
+  // Note box: opens automatically when an item is checked off, so whoever
+  // ticked it can say what happened while it's fresh. Per event instance.
+  const [noteBox, setNoteBox] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(item.note ?? '');
+  useEffect(() => { setNoteDraft(item.note ?? ''); }, [item.note]);
   const toggle = (next: boolean) => {
-    setDone(next);                                   // instant feedback
+    setDone(next); // instant feedback
     pending.current = true;
+    if (next && ctx.canEdit) setNoteBox(true); // prompt for a note on completion
     start(() => {
       toggleItem(ctx.instanceId, ctx.instSlug, item.id, next)
         .then(() => { ping(); router.refresh(); })
-        .catch(() => setDone(!next))                 // roll back on failure
+        .catch(() => setDone(!next)) // roll back on failure
         .finally(() => { pending.current = false; });
     });
+  };
+  const saveNote = () => {
+    run(() => setItemMeta(ctx.instanceId, ctx.instSlug, item.id, { note: noteDraft }));
+    setNoteBox(false);
   };
 
   const overdue = item.due_date && !shown && new Date(item.due_date) < new Date();
@@ -109,6 +119,31 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
           )}
         </span>
       </div>
+
+      {noteBox && ctx.canEdit && (
+        <div className="nb">
+          <div className="nb-h">
+            <span>Add a note</span>
+            <button className="nb-x" onClick={() => setNoteBox(false)} title="Close">✕</button>
+          </div>
+          <textarea
+            className="nb-t"
+            autoFocus
+            value={noteDraft}
+            placeholder="What happened, who did it, anything the next person running this event should know..."
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveNote();
+              if (e.key === 'Escape') setNoteBox(false);
+            }}
+          />
+          <div className="nb-a">
+            <button className="mini solid" onClick={saveNote}>Save note</button>
+            <button className="mini" onClick={() => setNoteBox(false)}>Skip</button>
+            <span className="nb-hint">Saved to this event only · ⌘↵ to save</span>
+          </div>
+        </div>
+      )}
 
       {item.detail && (
         <details className="dt">
