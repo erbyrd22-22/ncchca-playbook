@@ -54,7 +54,7 @@ main{flex:1;min-width:0;padding:1.9rem 2.4rem 6rem;max-width:1100px}
 /* ---------- Content ---------- */
 .eyebrow{font-family:var(--fh);font-size:.68rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--teal);margin-bottom:.35rem}
 h1.page{font-size:1.95rem;font-weight:800;letter-spacing:-.015em;margin-bottom:.35rem}
-.lede{font-size:1rem;color:#4A535C;max-width:70ch;margin-bottom:1.5rem}
+.lede{font-size:1.05rem;color:#4A535C;max-width:none;margin-bottom:1.5rem}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:1.4rem 1.6rem;margin-bottom:1rem;box-shadow:var(--sh);position:relative}
 .card h2{font-size:1.1rem;font-weight:700}
 .rule{height:3px;width:44px;background:var(--gold);border-radius:2px;margin:.1rem 0 .95rem}
@@ -189,4 +189,5 @@ tbody tr:nth-child(even){background:#FAFBFC}
 .dt>summary:hover{text-decoration:underline}
 .dt>div{margin-top:.4rem;padding:.7rem .9rem;background:#F7F9FA;border-left:3px solid var(--teal);
  border-radius:0 6px 6px 0;font-size:.86rem;line-height:1.55;color:#3A4A52;white-space:pre-wrap}
+
 
