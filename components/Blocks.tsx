@@ -19,6 +19,12 @@ function Saving({ on }: { on: boolean }) {
 }
 
 /* --------------------------------------------------------------- */
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/** Format from the ISO string itself so server and client always agree. */
+function fmtDay(iso: string) {
+ const [y, m, d] = iso.slice(0, 10).split('-');
+ return `${MON[Number(m) - 1]} ${Number(d)}, ${y}`;
+}
 function Editable({
   html, onSave, tag = 'div', className, placeholder,
 }: {
@@ -56,6 +62,9 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   // so another user's change isn't masked by our local state.
   useEffect(() => { if (!pending.current) setDone(item.done); }, [item.done]);
   const shown = done;
+ // Completion date, tracked alongside `done` so it appears the instant you tick.
+ const [doneAt, setDoneAt] = useState(item.done_at);
+ useEffect(() => { if (!pending.current) setDoneAt(item.done_at); }, [item.done_at]);
 
   const ping = () => { setSaved(true); setTimeout(() => setSaved(false), 1200); };
   const run = (fn: () => Promise<any>) =>
@@ -67,13 +76,13 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   const [noteDraft, setNoteDraft] = useState(item.note ?? '');
   useEffect(() => { setNoteDraft(item.note ?? ''); }, [item.note]);
   const toggle = (next: boolean) => {
-    setDone(next); // instant feedback
+    setDone(next); setDoneAt(next ? new Date().toISOString() : null); // instant feedback
     pending.current = true;
     if (next && ctx.canEdit) setNoteBox(true); // prompt for a note on completion
     start(() => {
       toggleItem(ctx.instanceId, ctx.instSlug, item.id, next)
         .then(() => { ping(); router.refresh(); })
-        .catch(() => setDone(!next)) // roll back on failure
+        .catch(() => { setDone(!next); setDoneAt(item.done_at); }) // roll back on failure
         .finally(() => { pending.current = false; });
     });
   };
@@ -152,9 +161,10 @@ function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
         </details>
       )}
 
-      {(item.owner_name || item.due_date || item.note) && !open && (
+      {(shown || item.owner_name || item.due_date || item.note) && !open && (
         <div className="meta-line">
-          {item.owner_name && <span className="chip">{item.owner_name}</span>}
+          {shown && doneAt && <span className="chip ok">✓ completed {fmtDay(doneAt)}</span>}
+ {item.owner_name && <span className="chip">{item.owner_name}</span>}
           {item.due_date && <span className={`chip ${overdue ? 'late' : 'due'}`}>due {item.due_date}</span>}
           {item.note && <span style={{ fontWeight: 400 }}>{item.note}</span>}
         </div>

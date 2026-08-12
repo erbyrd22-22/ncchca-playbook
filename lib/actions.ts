@@ -23,7 +23,11 @@ export async function toggleItem(instanceId: string, instSlug: string, itemId: s
   const u = await requireEditor();
   const sb = await serverClient();
   const { error } = await sb.from('item_state').upsert(
-    { instance_id: instanceId, item_id: itemId, done, updated_by: u.id, updated_at: new Date().toISOString() },
+    {
+ instance_id: instanceId, item_id: itemId, done,
+ done_at: done ? new Date().toISOString() : null, // stamped on completion, cleared on un-check
+ updated_by: u.id, updated_at: new Date().toISOString(),
+ },
     { onConflict: 'instance_id,item_id' }
   );
   check(error, 'update this item');
