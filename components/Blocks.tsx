@@ -19,7 +19,8 @@ function Saving({ on }: { on: boolean }) {
 }
 
 /* --------------------------------------------------------------- */
-function Editable({\n  html, onSave, tag = 'div', className, placeholder,
+function Editable({
+  html, onSave, tag = 'div', className, placeholder,
 }: {
   html: string; onSave: (v: string) => void; tag?: 'div' | 'h2' | 'p' | 'span';
   className?: string; placeholder?: string;
