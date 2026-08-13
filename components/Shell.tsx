@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import TopBar from './TopBar';
+import SideNav from './SideNav';
 import { BlockView, PhaseView, AddBlockBar } from './Blocks';
 import { updateSection } from '@/lib/actions';
 import type { Block, Instance, Section } from '@/lib/db';
@@ -27,8 +28,6 @@ export default function Shell({
     canEdit, editing: editing && canEdit, users,
   };
 
-  const groups: Record<string, Section[]> = {};
-  for (const s of sections) (groups[s.nav_group] ??= []).push(s);
 
   const p = progress[section.slug];
 
@@ -41,29 +40,7 @@ export default function Shell({
       />
 
       <div className="wrap">
-        <nav className="side">
-          {Object.entries(groups).map(([g, list]) => (
-            <div key={g}>
-              <div className="ng">{g}</div>
-              {list.map((s) => {
-                const pr = progress[s.slug];
-                return (
-                  <a
-                    key={s.id}
-                    href={`/i/${instance.slug}/${s.slug}`}
-                    className={s.slug === section.slug ? 'on' : ''}
-                  >
-                    <span className="num">{s.badge}</span>
-                    {s.title}
-                    {pr?.total ? (
-                      <span className={`np ${pr.pct === 100 ? 'done' : ''}`}>{pr.pct}%</span>
-                    ) : null}
-                  </a>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
+        <SideNav instanceSlug={instance.slug} sections={sections} progress={progress} active={section.slug} />
 
         <main className={editing ? 'edit-on' : ''}>
           {editing && (
