@@ -9,7 +9,7 @@ export default function TopBar({
   instances, current, user, section, editing, onToggleEdit,
 }: {
   instances: Instance[]; current: Instance; user: SessionUser | null;
-  section: string; editing: boolean; onToggleEdit: () => void;
+  section: string; editing: boolean; onToggleEdit?: () => void;
 }) {
   const router = useRouter();
   const [q, setQ] = useState('');
@@ -53,7 +53,7 @@ export default function TopBar({
             }}
           />
 
-          {canEdit && (
+          {canEdit && onToggleEdit && (
             <button className={editing ? 'btn solid' : 'btn'} onClick={onToggleEdit}>
               {editing ? '✓ Done editing' : '✎ Edit'}
             </button>
