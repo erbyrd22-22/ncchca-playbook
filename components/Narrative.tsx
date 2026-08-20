@@ -28,7 +28,7 @@ function build(reg: Registry, d: Data) {
  const past = reg.event_date ? reg.event_date < new Date().toISOString().slice(0, 10) : false;
  const paras: string[] = [];
  paras.push(
- `${reg.name}${reg.event_date ? ` was held on ${longDate(reg.event_date)}` : ' is scheduled'}` +
+ `${reg.name}${reg.event_date ? `${past ? ' was held on ' : ' is scheduled for '}${longDate(reg.event_date)}` : ' is scheduled'}` +
  `${reg.venue ? ` at ${reg.venue}` : ''}. The event is convened by the North Carolina Community ` +
  `Health Center Association as part of its training and technical assistance programme for ` +
  `federally qualified health centers and their partners across the state.`
@@ -66,10 +66,14 @@ function build(reg: Registry, d: Data) {
  );
  }
  const b = d.budget;
+ const noBudget = !b.booked && b.revP === 0 && b.expP === 0;
  paras.push(
  b.booked
  ? `Financially, the event recorded ${money(b.revA)} in revenue against ${money(b.expA)} in ` +
  `expense, a net of ${money(b.netA)} (planned: ${money(b.netP)}).`
+ : noBudget
+ ? `[No budget figures on file. Enter planned revenue and expense on the Budget view before ` +
+ `submitting — a reported net of zero is worse than an acknowledged gap.]`
  : `The approved budget projects ${money(b.revP)} in revenue against ${money(b.expP)} in expense, ` +
  `a planned net of ${money(b.netP)}. [Actuals not yet posted.]`
  );
