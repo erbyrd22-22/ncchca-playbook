@@ -96,12 +96,43 @@ function build(reg: Registry, d: Data) {
  }
  return paras.join(SEP);
 }
+function asMarkdown(reg: Registry, text: string, data: Data) {
+ const NL = String.fromCharCode(10);
+ const rows = data.metrics.map(
+ (m) => `| ${m.label} | ${m.value == null ? 'not recorded' : `${m.value}${m.unit ? ` ${m.unit}` : ''}`} | ${m.note ?? ''} |`
+ );
+ return [
+ `# ${reg.name}`,
+ `Draft narrative for the Health Resources and Services Administration (HRSA).`,
+ text,
+ `## Outcome data on file`,
+ `| Measure | Value | Note |`,
+ `| --- | --- | --- |`,
+ ...rows,
+ ].join(NL + NL);
+}
+
+const slugify = (s: string) =>
+ s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+
 export default function Narrative({ reg, data }: { reg: Registry; data: Data }) {
  const text = useMemo(() => build(reg, data), [reg, data]);
  const [copied, setCopied] = useState(false);
  const gaps = data.metrics.filter((m) => m.value == null);
+
+ const download = () => {
+ const blob = new Blob([asMarkdown(reg, text, data)], { type: 'text/markdown;charset=utf-8' });
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement('a');
+ a.href = url;
+ a.download = `${slugify(reg.name)}-hrsa-narrative.md`;
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ setTimeout(() => URL.revokeObjectURL(url), 1000);
+ };
  return (
- <>
+ <div className="report">
  {gaps.length > 0 && (
  <div className="note">
  <div className="h">{gaps.length} data point{gaps.length === 1 ? '' : 's'} still missing</div>
@@ -111,12 +142,14 @@ export default function Narrative({ reg, data }: { reg: Registry; data: Data }) 
  <div className="card">
  <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
  <h2 style={{ flex: 1, margin: 0 }}>Draft narrative</h2>
- <button className="mini solid" onClick={() => {
+ <button className="mini" onClick={() => {
  navigator.clipboard?.writeText(text).then(() => {
  setCopied(true);
  setTimeout(() => setCopied(false), 1600);
  });
  }}>{copied ? 'Copied' : 'Copy text'}</button>
+ <button className="mini" onClick={download} title="Save the narrative and the outcome table as a Markdown file">Download</button>
+ <button className="mini solid" onClick={() => window.print()} title="Print, or save as PDF from the print dialog">Print</button>
  </div>
  <div className="rule" />
  <div className="nar">
@@ -144,7 +177,7 @@ export default function Narrative({ reg, data }: { reg: Registry; data: Data }) 
  </table>
  </div>
  </div>
- </>
+ </div>
  );
 }
 
