@@ -1,4 +1,5 @@
 import LoginForm from '@/components/LoginForm';
+import Brandmark from '@/components/Brandmark';
 import { supabaseConfigured } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ export default async function LoginPage({
     <div className="auth-wrap">
       <div className="auth-card">
         <div className="auth-head">
-          <div className="mark" style={{ width: 46, height: 46, fontSize: '.85rem' }}>NC</div>
+          <Brandmark height={64} tone="dark" />
           <div>
             <h1>Conference &amp; Event Playbook</h1>
             <div className="bs" style={{ color: 'var(--muted)' }}>
