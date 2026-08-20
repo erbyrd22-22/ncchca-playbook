@@ -12,7 +12,7 @@ const TITLES: Record<string, { title: string; eyebrow: string; lede: string }> =
  timeline: { title: 'Timeline', eyebrow: 'Derived output', lede: 'Every dated task for this event, rolled up by phase. Nothing here is entered twice: the dates come from the checklist, so the schedule updates itself as the playbook is worked.' },
  budget: { title: 'Budget', eyebrow: 'Derived output', lede: 'Revenue and expense lines for this event, with a month-by-month view of when the money actually moves.' },
  sponsors: { title: 'Sponsors and Exhibitors', eyebrow: 'Derived output', lede: 'Who has committed, what they were promised, and which of those promises have been delivered.' },
- narrative: { title: 'HRSA Narrative', eyebrow: 'Derived output', lede: 'A draft written from the registry, budget, sponsorship and outcome data on file. Read it, correct it, then paste it into the report.' },
+ narrative: { title: 'HRSA Narrative', eyebrow: 'Derived output', lede: 'A draft grant report for the Health Resources and Services Administration (HRSA) — the federal agency that funds community health centers and NCCHCA’s own programs. Written from the registry, budget, sponsorship and outcome data on file: read it, correct it, then download, print, or paste it into the report.' },
  feed: { title: 'Exports', eyebrow: 'Derived output', lede: 'The same data in formats other systems can read: the website, a calendar, a spreadsheet.' },
 };
 export default async function OutputPage({ params }: { params: Promise<{ slug: string; view: string }> }) {
