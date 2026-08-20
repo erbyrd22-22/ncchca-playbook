@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { Instance } from '@/lib/db';
 import type { SessionUser } from '@/lib/auth';
+import Brandmark from './Brandmark';
 
 export default function TopBar({
   instances, current, user, section, editing, onToggleEdit,
@@ -19,7 +20,7 @@ export default function TopBar({
     <header className="top">
       <div className="top-in">
         <div className="bm">
-          <div className="mark">NC</div>
+          <Brandmark height={34} />
           <div style={{ minWidth: 0 }}>
             <div className="bt">Conference &amp; Event Playbook</div>
             <div className="bs">NC Community Health Center Association</div>
