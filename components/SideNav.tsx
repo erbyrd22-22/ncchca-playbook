@@ -3,7 +3,7 @@ export const OUTPUTS = [
  { key: 'timeline', badge: '◷', title: 'Timeline' },
  { key: 'budget', badge: '$', title: 'Budget' },
  { key: 'sponsors', badge: '◈', title: 'Sponsors' },
- { key: 'narrative', badge: '¶', title: 'HRSA Narrative' },
+ { key: 'narrative', badge: '¶', title: 'HRSA Narrative', hint: 'Health Resources and Services Administration' },
  { key: 'feed', badge: '↗', title: 'Exports' },
 ];
 export default function SideNav({ instanceSlug, sections, progress, active }: {
@@ -34,7 +34,7 @@ export default function SideNav({ instanceSlug, sections, progress, active }: {
  <div>
  <div className="ng">Outputs</div>
  {OUTPUTS.map((o) => (
- <a key={o.key} href={`/i/${instanceSlug}/out/${o.key}`} className={active === `out:${o.key}` ? 'on' : ''}>
+ <a key={o.key} href={`/i/${instanceSlug}/out/${o.key}`} title={o.hint} className={active === `out:${o.key}` ? 'on' : ''}>
  <span className="num out">{o.badge}</span>
  {o.title}
  </a>
@@ -43,4 +43,3 @@ export default function SideNav({ instanceSlug, sections, progress, active }: {
  </nav>
  );
 }
-
