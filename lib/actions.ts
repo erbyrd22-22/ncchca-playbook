@@ -360,3 +360,31 @@ export async function deleteUser(userId: string) {
   await logAudit(u.id, 'user.delete', 'app_user', userId, null, row ?? null, null);
   revalidatePath('/', 'layout');
 }
+
+/**
+ * Issue a new temporary password for someone who is locked out. They are
+ * forced to replace it the moment they sign in. Use this rather than the
+ * emailed reset link while custom SMTP is still unconfigured.
+ */
+export async function resetUserPassword(form: FormData) {
+  const u = await requireAdmin();
+  const { adminClient } = await import('./supabase-admin');
+
+  const userId = String(form.get('user_id') ?? '');
+  const tempPassword = String(form.get('temp_password') ?? '');
+  if (!userId) throw new Error('Pick someone to reset.');
+  if (tempPassword.length < 10) throw new Error('The temporary password needs at least 10 characters.');
+
+  const admin = adminClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, { password: tempPassword });
+  if (error) throw new Error(`Could not reset that password: ${error.message}`);
+
+  const { error: flagErr } = await admin
+    .from('app_user')
+    .update({ must_change_password: true })
+    .eq('id', userId);
+  if (flagErr) throw new Error(`Password reset, but the change-on-login flag did not save: ${flagErr.message}`);
+
+  await logAudit(u.id, 'user.password_reset', 'app_user', userId, null, null, null);
+  revalidatePath('/', 'layout');
+}
