@@ -2,7 +2,9 @@ import { notFound } from 'next/navigation';
 import { redirect } from 'next/navigation';
 import { getInstance, getInstances, getUsers, getAudit, countTemplateItems } from '@/lib/db';
 import { getSessionUser, isAdmin, canEdit } from '@/lib/auth';
-import { createInstance, updateInstance, resetInstanceProgress } from '@/lib/actions';
+import { createInstance, updateInstance, resetInstanceProgress, deleteInstance, setUserRole, createUser, deleteUser } from '@/lib/actions';
+import { adminConfigured } from '@/lib/supabase-admin';
+import Brandmark from '@/components/Brandmark';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,13 +36,33 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
     await resetInstanceProgress(slug, instance!.id);
     redirect(`/i/${slug}/settings`);
   }
+  async function removeInstance(form: FormData) {
+    'use server';
+    await deleteInstance(instance!.id, String(form.get('confirm') ?? ''));
+    redirect('/');
+  }
+  async function changeRole(form: FormData) {
+    'use server';
+    await setUserRole(String(form.get('user_id')), String(form.get('role')));
+    redirect(`/i/${slug}/settings`);
+  }
+  async function addUser(form: FormData) {
+    'use server';
+    await createUser(form);
+    redirect(`/i/${slug}/settings`);
+  }
+  async function removeUser(form: FormData) {
+    'use server';
+    await deleteUser(String(form.get('user_id')));
+    redirect(`/i/${slug}/settings`);
+  }
 
   return (
     <>
       <header className="top">
         <div className="top-in">
           <div className="bm">
-            <div className="mark">NC</div>
+            <Brandmark height={34} />
             <div>
               <div className="bt">Settings</div>
               <div className="bs">{instance.name}</div>
@@ -136,22 +158,80 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
             <h2>People &amp; roles</h2><div className="rule" />
             <div className="tw">
               <table>
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th>{admin && <th style={{ width: 90 }}></th>}</tr></thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id}>
                       <td>{u.full_name}</td><td>{u.email}</td>
-                      <td><span className={`role ${u.role}`}>{u.role}</span></td>
+                      <td>
+                        {admin && u.id !== user?.id ? (
+                          <form action={changeRole} style={{ display: 'flex', gap: '.35rem' }}>
+                            <input type="hidden" name="user_id" value={u.id} />
+                            <select className="inp" name="role" defaultValue={u.role} style={{ padding: '.25rem .4rem', fontSize: '.8rem' }}>
+                              <option value="admin">admin</option>
+                              <option value="editor">editor</option>
+                              <option value="viewer">viewer</option>
+                            </select>
+                            <button className="mini">Save</button>
+                          </form>
+                        ) : (
+                          <span className={`role ${u.role}`}>{u.role}{u.id === user?.id ? ' · you' : ''}</span>
+                        )}
+                      </td>
+                      {admin && (
+                        <td>
+                          {u.id !== user?.id && (
+                            <form action={removeUser}>
+                              <input type="hidden" name="user_id" value={u.id} />
+                              <button className="mini del">Remove</button>
+                            </form>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {admin && (
+              adminConfigured() ? (
+                <form action={addUser} style={{ marginTop: '1rem', display: 'grid', gap: '.55rem' }}>
+                  <h3 style={{ margin: 0, fontSize: '.95rem' }}>Add someone</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '.55rem' }}>
+                    <input className="inp" name="email" type="email" placeholder="name@ncchca.org" required />
+                    <input className="inp" name="full_name" placeholder="Full name" />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr auto', gap: '.55rem' }}>
+                    <select className="inp" name="role" defaultValue="viewer">
+                      <option value="viewer">Viewer</option>
+                      <option value="editor">Editor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <input className="inp" name="temp_password" placeholder="Temporary password (10+ characters)" minLength={10} required />
+                    <button className="mini solid" style={{ padding: '.45rem .9rem' }}>+ Add user</button>
+                  </div>
+                  <p style={{ fontSize: '.8rem', color: 'var(--muted)', margin: 0 }}>
+                    They sign in with this temporary password and are asked to set their own
+                    straight away. Send it to them over something other than email if you can, and
+                    do not reuse a password you use elsewhere.
+                  </p>
+                </form>
+              ) : (
+                <div className="note" style={{ marginTop: '1rem' }}>
+                  <div className="h">⚑ Adding users is not configured yet</div>
+                  Creating a sign-in needs Supabase&rsquo;s <b>service_role</b> key. In Supabase go to
+                  Project Settings → API, copy the <code>service_role</code> secret, then in Railway
+                  add it to this service as <code>SUPABASE_SERVICE_ROLE_KEY</code> and redeploy.
+                  Roles below can still be changed without it.
+                </div>
+              )
+            )}
             <p style={{ fontSize: '.83rem', color: 'var(--muted)' }}>
-              In production, users are invited by email through Supabase Auth and land here
-              automatically. <b>Admin</b> edits structure and creates instances; <b>editor</b> edits
-              content and progress; <b>viewer</b> is read-only. Row Level Security enforces this in
-              the database, not just the app.
+              <b>Admin</b> edits structure, creates and deletes events, and manages people;
+              <b> editor</b> edits content and progress; <b>viewer</b> is read-only. Row Level
+              Security enforces this in the database, not just the app — so a viewer cannot write
+              even if they reach the API directly.
             </p>
           </div>
 
@@ -180,6 +260,24 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
                   Template content is not affected.
                 </p>
                 <button className="mini del" style={{ padding: '.45rem .9rem' }}>Reset this event’s progress</button>
+              </form>
+
+              <hr style={{ border: 0, borderTop: '1px solid #F0DFA8', margin: '1.1rem 0' }} />
+
+              <form action={removeInstance}>
+                <p style={{ fontSize: '.87rem', marginTop: 0 }}>
+                  <b>Delete {instance.name}</b> and everything recorded against it — progress,
+                  owners, due dates, notes, budget lines, sponsors, metrics and comments. The
+                  playbook template and every other event are untouched. This cannot be undone.
+                </p>
+                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input
+                    className="inp" name="confirm" required
+                    placeholder={`Type “${instance.name}” to confirm`}
+                    style={{ flex: 1, minWidth: 260 }}
+                  />
+                  <button className="mini del" style={{ padding: '.45rem .9rem' }}>Delete this event</button>
+                </div>
               </form>
             </div>
           )}
