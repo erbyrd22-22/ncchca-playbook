@@ -156,7 +156,7 @@ export function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
 
       {item.detail && (
         <details className="dt">
-          <summary>Source detail</summary>
+          <summary>Detail</summary>
           <div>{item.detail}</div>
         </details>
       )}
