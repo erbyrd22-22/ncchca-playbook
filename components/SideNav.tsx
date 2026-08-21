@@ -32,6 +32,14 @@ export default function SideNav({ instanceSlug, sections, progress, active }: {
  </div>
  ))}
  <div>
+ <div className="ng">Guided</div>
+ <a href={`/i/${instanceSlug}/walkthrough`} className={active === 'walkthrough' ? 'on' : ''}>
+ <span className="num out">▸</span>
+ Walkthrough
+ </a>
+ </div>
+
+ <div>
  <div className="ng">Outputs</div>
  {OUTPUTS.map((o) => (
  <a key={o.key} href={`/i/${instanceSlug}/out/${o.key}`} title={o.hint} className={active === `out:${o.key}` ? 'on' : ''}>
