@@ -18,7 +18,7 @@ export default async function AccountPasswordPage() {
           <Brandmark height={64} tone="dark" />
           <div>
             <h1>Set your password</h1>
-            <div className="bs" style={{ color: 'var(--muted)' }}>{user.email}</div>
+            <div className="bs" style={{ color: 'var(--muted)', overflowWrap: 'anywhere', letterSpacing: 0, textTransform: 'none' }}>{user.email}</div>
           </div>
         </div>
 
