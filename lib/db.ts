@@ -188,3 +188,14 @@ export async function getAudit(instanceId: string, limit = 40) {
     actor: a.actor_id ? nameBy.get(a.actor_id) ?? null : null, after: a.after,
   }));
 }
+
+/** Whether this person is still on an admin-issued temporary password. */
+export async function getMustChangePassword(userId: string): Promise<boolean> {
+  const sb = await serverClient();
+  const { data } = await sb
+    .from('app_user')
+    .select('must_change_password')
+    .eq('id', userId)
+    .maybeSingle();
+  return !!data?.must_change_password;
+}
