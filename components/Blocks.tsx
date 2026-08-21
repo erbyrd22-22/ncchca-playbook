@@ -314,7 +314,8 @@ export function BlockView({ block, ctx }: { block: Block; ctx: Ctx }) {
   }
 
   // default: card
-  const grid = (meta.grid ?? []) as [string, string][];
+  // [key, name] or [key, name, href] — with an href the tile becomes a link
+  const grid = (meta.grid ?? []) as [string, string, string?][];
   return (
     <div className="card">
       <BlockTools blockId={block.id} ctx={ctx} />
@@ -332,9 +333,15 @@ export function BlockView({ block, ctx }: { block: Block; ctx: Ctx }) {
 
       {grid.length > 0 && (
         <div className="grid">
-          {grid.map(([k, n], i) => (
-            <div className="tk" key={i}><span className="k">{k}</span><span>{n}</span></div>
-          ))}
+          {grid.map(([k, n, href], i) =>
+            href ? (
+              <a className="tk" key={i} href={href} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <span className="k">{k}</span><span>{n}</span>
+              </a>
+            ) : (
+              <div className="tk" key={i}><span className="k">{k}</span><span>{n}</span></div>
+            )
+          )}
         </div>
       )}
 
