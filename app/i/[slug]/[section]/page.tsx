@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import {
   getInstance, getInstances, getSections, getSectionContent, getProgress, getUsers,
+  getMustChangePassword,
 } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
 
@@ -20,6 +21,9 @@ export default async function SectionPage({
   const [instances, sections, user, users] = await Promise.all([
     getInstances(), getSections(instance.template_id), getSessionUser(), getUsers(),
   ]);
+
+  // Anyone still on an admin-issued temporary password sets their own first.
+  if (user && (await getMustChangePassword(user.id))) redirect('/account/password');
 
   const section = sections.find((s) => s.slug === sectionSlug);
   if (!section) redirect(`/i/${slug}/${sections[0]?.slug ?? 'overview'}`);
