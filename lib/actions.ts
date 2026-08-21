@@ -252,3 +252,111 @@ export async function addComment(instSlug: string, instanceId: string, itemId: s
   check(error, 'post this comment');
   touch(instSlug);
 }
+
+// ---------------------------------------------------------------------
+// Deleting an event
+// ---------------------------------------------------------------------
+
+/**
+ * Delete an event instance and everything scoped to it — progress, budget
+ * lines, sponsors, metrics, comments (all ON DELETE CASCADE). Template
+ * content is shared and is never touched. Requires the typed confirmation
+ * so a stray click cannot destroy a year of tracking.
+ */
+export async function deleteInstance(instanceId: string, typed: string) {
+  const u = await requireAdmin();
+  const sb = await serverClient();
+
+  const { data: inst } = await sb.from('instance').select('name,slug').eq('id', instanceId).single();
+  if (!inst) throw new Error('That event no longer exists.');
+  if (typed.trim() !== inst.name.trim())
+    throw new Error('Type the event name exactly as shown to confirm the deletion.');
+
+  const { count } = await sb.from('instance').select('id', { count: 'exact', head: true });
+  if ((count ?? 0) <= 1) throw new Error('This is the only event. Create another before deleting it.');
+
+  await logAudit(u.id, 'instance.delete', 'instance', instanceId, null, inst, null);
+  const { error } = await sb.from('instance').delete().eq('id', instanceId);
+  check(error, 'delete this event');
+
+  revalidatePath('/', 'layout');
+}
+
+// ---------------------------------------------------------------------
+// People and roles
+// ---------------------------------------------------------------------
+
+const ROLES = ['admin', 'editor', 'viewer'] as const;
+
+/** Change an existing person's role. Admins cannot demote themselves. */
+export async function setUserRole(userId: string, role: string) {
+  const u = await requireAdmin();
+  if (!ROLES.includes(role as (typeof ROLES)[number])) throw new Error('Unknown role.');
+  if (userId === u.id) throw new Error('You cannot change your own role. Ask another admin.');
+
+  const sb = await serverClient();
+  const { error } = await sb.from('app_user').update({ role }).eq('id', userId);
+  check(error, "change this person's role");
+  await logAudit(u.id, 'user.role', 'app_user', userId, null, null, { role });
+  revalidatePath('/', 'layout');
+}
+
+/**
+ * Create a sign-in for someone with a temporary password they replace on
+ * first use. Needs the Supabase service-role key, which is the only way to
+ * mint an auth user with a known password; everything else in this app runs
+ * on the anon key under Row Level Security.
+ */
+export async function createUser(form: FormData) {
+  const u = await requireAdmin();
+  const { adminClient } = await import('./supabase-admin');
+
+  const email = String(form.get('email') ?? '').trim().toLowerCase();
+  const fullName = cleanText(String(form.get('full_name') ?? '')).trim();
+  const role = String(form.get('role') ?? 'viewer');
+  const tempPassword = String(form.get('temp_password') ?? '');
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Enter a valid email address.');
+  if (!ROLES.includes(role as (typeof ROLES)[number])) throw new Error('Unknown role.');
+  if (tempPassword.length < 10) throw new Error('The temporary password needs at least 10 characters.');
+
+  const admin = adminClient();
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: tempPassword,
+    email_confirm: true, // no confirmation mail — they sign in immediately
+    user_metadata: { full_name: fullName || email.split('@')[0] },
+  });
+  if (error) {
+    throw new Error(
+      /already been registered/i.test(error.message)
+        ? 'Someone with that email already has a sign-in. Change their role below instead.'
+        : `Could not create the sign-in: ${error.message}`
+    );
+  }
+
+  // the on_auth_user_created trigger has made the app_user row as a viewer
+  const { error: upErr } = await admin
+    .from('app_user')
+    .update({ role, full_name: fullName || email.split('@')[0], must_change_password: true })
+    .eq('id', data.user!.id);
+  if (upErr) throw new Error(`Sign-in created, but the role did not save: ${upErr.message}`);
+
+  await logAudit(u.id, 'user.create', 'app_user', data.user!.id, null, null, { email, role });
+  revalidatePath('/', 'layout');
+}
+
+/** Remove someone's access entirely. */
+export async function deleteUser(userId: string) {
+  const u = await requireAdmin();
+  if (userId === u.id) throw new Error('You cannot remove your own access.');
+  const { adminClient } = await import('./supabase-admin');
+
+  const admin = adminClient();
+  const { data: row } = await admin.from('app_user').select('email').eq('id', userId).maybeSingle();
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) throw new Error(`Could not remove that person: ${error.message}`);
+
+  await logAudit(u.id, 'user.delete', 'app_user', userId, null, row ?? null, null);
+  revalidatePath('/', 'layout');
+}
