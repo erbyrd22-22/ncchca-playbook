@@ -2,9 +2,10 @@ import { notFound } from 'next/navigation';
 import { redirect } from 'next/navigation';
 import { getInstance, getInstances, getUsers, getAudit, countTemplateItems } from '@/lib/db';
 import { getSessionUser, isAdmin, canEdit } from '@/lib/auth';
-import { createInstance, updateInstance, resetInstanceProgress, deleteInstance, setUserRole, createUser, deleteUser } from '@/lib/actions';
+import { createInstance, updateInstance, resetInstanceProgress, deleteInstance, setUserRole, createUser, deleteUser, resetUserPassword } from '@/lib/actions';
 import { adminConfigured } from '@/lib/supabase-admin';
 import Brandmark from '@/components/Brandmark';
+import PasswordInput from '@/components/PasswordInput';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,11 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
     'use server';
     await createUser(form);
     redirect(`/i/${slug}/settings`);
+  }
+  async function resetPassword(form: FormData) {
+    'use server';
+    await resetUserPassword(form);
+    redirect('/i/' + slug + '/settings');
   }
   async function removeUser(form: FormData) {
     'use server';
@@ -227,6 +233,27 @@ export default async function Settings({ params }: { params: Promise<{ slug: str
                 </div>
               )
             )}
+            {admin && adminConfigured() && users.length > 0 && (
+              <form action={resetPassword} style={{ marginTop: '1.1rem', display: 'grid', gap: '.55rem' }}>
+                <h3 style={{ margin: 0, fontSize: '.95rem' }}>Reset someone&rsquo;s password</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr auto', gap: '.55rem', alignItems: 'center' }}>
+                  <select className="inp" name="user_id" required defaultValue="">
+                    <option value="" disabled>Choose a person…</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.full_name} — {u.email}</option>
+                    ))}
+                  </select>
+                  <PasswordInput name="temp_password" placeholder="New temporary password (10+ characters)" autoComplete="new-password" />
+                  <button className="mini" style={{ padding: '.45rem .9rem' }}>Reset password</button>
+                </div>
+                <p style={{ fontSize: '.8rem', color: 'var(--muted)', margin: 0 }}>
+                  They sign in with this and are sent straight to set their own. Use this rather
+                  than the emailed reset link until custom SMTP is configured — the built-in
+                  Supabase mailer is rate-limited and often lands in spam.
+                </p>
+              </form>
+            )}
+
             <p style={{ fontSize: '.83rem', color: 'var(--muted)' }}>
               <b>Admin</b> edits structure, creates and deletes events, and manages people;
               <b> editor</b> edits content and progress; <b>viewer</b> is read-only. Row Level
