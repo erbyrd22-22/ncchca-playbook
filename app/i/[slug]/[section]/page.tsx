@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import Shell from '@/components/Shell';
 import {
   getInstance, getInstances, getSections, getSectionContent, getProgress, getUsers,
-  getMustChangePassword,
+  getMustChangePassword, getProgressForAllInstances,
 } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
 
@@ -28,9 +28,10 @@ export default async function SectionPage({
   const section = sections.find((s) => s.slug === sectionSlug);
   if (!section) redirect(`/i/${slug}/${sections[0]?.slug ?? 'overview'}`);
 
-  const [blocks, progress] = await Promise.all([
+  const [blocks, progress, allProgress] = await Promise.all([
     getSectionContent(section.id, instance.id),
     getProgress(instance.id),
+    section.slug === 'portfolio' ? getProgressForAllInstances() : Promise.resolve(undefined),
   ]);
 
   return (
@@ -43,6 +44,7 @@ export default async function SectionPage({
       progress={progress}
       user={user}
       users={users.map((u) => ({ id: u.id, full_name: u.full_name }))}
+      allProgress={allProgress}
     />
   );
 }
