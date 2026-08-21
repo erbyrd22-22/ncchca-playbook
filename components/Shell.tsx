@@ -5,18 +5,20 @@ import { useRouter } from 'next/navigation';
 import TopBar from './TopBar';
 import SideNav from './SideNav';
 import { BlockView, PhaseView, AddBlockBar } from './Blocks';
+import EventList from './EventList';
 import { updateSection } from '@/lib/actions';
 import type { Block, Instance, Section } from '@/lib/db';
 import type { SessionUser } from '@/lib/auth';
 
 export default function Shell({
-  instances, instance, sections, section, blocks, progress, user, users,
+  instances, instance, sections, section, blocks, progress, user, users, allProgress,
 }: {
   instances: Instance[]; instance: Instance; sections: Section[];
   section: Section; blocks: Block[];
   progress: Record<string, { total: number; done: number; pct: number | null }>;
   user: SessionUser | null;
   users: { id: string; full_name: string }[];
+  allProgress?: Record<string, { done: number; total: number; pct: number }>;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -84,6 +86,10 @@ export default function Shell({
               <b>{p.done} of {p.total} · {p.pct}%</b>
             </div>
           ) : null}
+
+          {section.slug === 'portfolio' && allProgress && (
+            <EventList instances={instances} current={instance.slug} progress={allProgress} />
+          )}
 
           {section.kind === 'timeline' ? (
             <div className="tl">
