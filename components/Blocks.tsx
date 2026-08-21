@@ -8,7 +8,7 @@ import {
   updateBlock, addBlock, deleteBlock,
 } from '@/lib/actions';
 
-type Ctx = {
+export type Ctx = {
   instanceId: string; instSlug: string; sectionId: string;
   canEdit: boolean; editing: boolean;
   users: { id: string; full_name: string }[];
@@ -48,7 +48,7 @@ function Editable({
 }
 
 /* --------------------------------------------------------------- */
-function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
+export function ItemRow({ item, ctx }: { item: Item; ctx: Ctx }) {
   const router = useRouter();
   const [, start] = useTransition();
   const [open, setOpen] = useState(false);
