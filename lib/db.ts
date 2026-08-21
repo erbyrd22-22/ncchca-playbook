@@ -199,3 +199,44 @@ export async function getMustChangePassword(userId: string): Promise<boolean> {
     .maybeSingle();
   return !!data?.must_change_password;
 }
+
+/**
+ * The steps of the guided walkthrough: the 12-Month Timeline phases in order,
+ * with this event's own progress merged in. Deliberately just that one
+ * section — it is the generic "how an event gets built" spine. The PCC
+ * Operating Calendar is a reference document, not a path to walk.
+ */
+export async function getWalkthroughSteps(templateId: string, instanceId: string) {
+  const sb = await serverClient();
+  const { data: sec } = await sb
+    .from('section')
+    .select('id,title,slug')
+    .eq('template_id', templateId)
+    .eq('slug', 'p2')
+    .maybeSingle();
+  if (!sec) return { sectionTitle: null as string | null, steps: [] as Block[] };
+  const steps = await getSectionContent(sec.id, instanceId);
+  return { sectionTitle: sec.title as string, steps };
+}
+
+/** Done/total across every checklist item, for each event. Drives the portfolio list. */
+export async function getProgressForAllInstances(): Promise<
+  Record<string, { done: number; total: number; pct: number }>
+> {
+  const sb = await serverClient();
+  const [{ data: rows }, { count: total }] = await Promise.all([
+    sb.from('item_state').select('instance_id,done'),
+    sb.from('item').select('id', { count: 'exact', head: true }),
+  ]);
+  const out: Record<string, { done: number; total: number; pct: number }> = {};
+  const t = total ?? 0;
+  for (const r of rows ?? []) {
+    const k = (r as any).instance_id as string;
+    out[k] ??= { done: 0, total: t, pct: 0 };
+    if ((r as any).done) out[k].done += 1;
+  }
+  for (const k of Object.keys(out)) {
+    out[k].pct = out[k].total ? Math.round((out[k].done / out[k].total) * 100) : 0;
+  }
+  return out;
+}
